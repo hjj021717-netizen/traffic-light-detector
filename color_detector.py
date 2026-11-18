@@ -68,8 +68,40 @@ class TrafficLightColorDetector:
         else:
             return "GREEN", 1 - red_ratio
 
+    def detect_lamp_color(self, image, box_xyxy, core_pct=88, min_sat=60, min_val=90, min_pixels=8, min_share=0.6):
+        """켜진 등의 색을 RED / GREEN / UNKNOWN 으로 판정 (빨강이 아니면 초록으로 보지 않음).
+        가장 밝은 부분(등 중심)과 그 주변 테두리의 색이 뚜렷한 픽셀만 보고,
+        초록 계열(H 35~99)과 빨강 계열(H<=15 또는 >=155) 개수를 비교한다. 증거가 부족하면 UNKNOWN.
+        파란 조명 아래에서 박스 안 배경이 파랗게 찍혀도 영향을 덜 받는다."""
+        x1, y1, x2, y2 = [int(round(float(v))) for v in box_xyxy]
+        H, W = image.shape[:2]
+        x1, y1, x2, y2 = max(0, x1), max(0, y1), min(W, x2), min(H, y2)
+        crop = image[y1:y2, x1:x2]
+        if crop.size == 0 or min(crop.shape[:2]) < 4:
+            return "UNKNOWN", 0
+        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+        h, s, v = [c.astype(int) for c in cv2.split(hsv)]
+        core = (v >= np.percentile(v, core_pct)).astype(np.uint8)
+        k = max(2, int(round(min(crop.shape[:2]) * 0.12)))
+        near = cv2.dilate(core, np.ones((2 * k + 1, 2 * k + 1), np.uint8)) > 0
+        hh = h[near & (s >= min_sat) & (v >= min_val)]
+        n_green = int(np.sum((hh >= 35) & (hh <= 99)))
+        n_red = int(np.sum((hh <= 15) | (hh >= 155)))
+        total = n_green + n_red
+        if total < min_pixels:
+            return "UNKNOWN", 0
+        if n_green / total >= min_share:
+            return "GREEN", n_green / total
+        if n_red / total >= min_share:
+            return "RED", n_red / total
+        return "UNKNOWN", max(n_green, n_red) / total
+
     def detect_color_combined(self, image, box_xyxy):
-        """RGB 방식과 Hue 방식을 종합해 최종 판정"""
+        """최종 판정: 켜진 등 색 판정(detect_lamp_color)을 사용. UNKNOWN 이면 그 검출은 버려진다(behavior.py)."""
+        return self.detect_lamp_color(image, box_xyxy)
+
+    def detect_color_combined_legacy(self, image, box_xyxy):
+        """(이전 방식, 비교용) RGB 방식과 Hue 방식을 종합해 최종 판정"""
         rgb_color, rgb_conf = self.detect_color(image, box_xyxy)
         hsv_color, hsv_conf = self.detect_color_by_hue(image, box_xyxy)
 
