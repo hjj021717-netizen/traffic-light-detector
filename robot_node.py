@@ -40,7 +40,7 @@ class TrafficLightNode(Node):
     def on_image(self, msg):
         image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
 
-        results = self.model(image, conf=0.5, verbose=False)
+        results = self.model(image, imgsz=1280, conf=0.4, verbose=False)
         detections = yolo_results_to_detections(
             results[0], self.class_names, image, self.color_detector
         )
